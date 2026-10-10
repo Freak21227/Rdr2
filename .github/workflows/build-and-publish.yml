@@ -21,19 +21,19 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: sinan-keskin/Red-Dead-Redemption-2-Turkce-Yama
-          ref: ${{ github.ref }}
+          # Intentionally omit "ref": use the source repository's default branch.
 
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
 
-      - name: Build .NET Framework WinForms application
+      - name: Build application
         shell: pwsh
         run: |
           $project = Get-ChildItem -Path . -Filter '*.csproj' -Recurse |
             Select-Object -First 1
 
           if (-not $project) {
-            throw "No .csproj file was found."
+            throw "No .csproj file was found in the repository."
           }
 
           msbuild $project.FullName `
@@ -48,6 +48,10 @@ jobs:
           }
 
           $outputDir = Join-Path $project.DirectoryName 'bin\Release'
+          if (-not (Test-Path $outputDir)) {
+            throw "Build output directory not found: $outputDir"
+          }
+
           $exe = Get-ChildItem -Path $outputDir -Filter '*.exe' -File |
             Select-Object -First 1
 
@@ -59,10 +63,10 @@ jobs:
           New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
           Copy-Item -Path (Join-Path $outputDir '*') -Destination $packageDir -Recurse -Force
 
-          $zipPath = Join-Path $env:GITHUB_WORKSPACE 'RDR2-Turkce-Yama.zip'
-          Compress-Archive -Path (Join-Path $packageDir '*') -DestinationPath $zipPath -Force
-
-          "PACKAGE_PATH=$zipPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Compress-Archive `
+            -Path (Join-Path $packageDir '*') `
+            -DestinationPath (Join-Path $env:GITHUB_WORKSPACE 'RDR2-Turkce-Yama.zip') `
+            -Force
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -78,3 +82,4 @@ jobs:
         with:
           files: RDR2-Turkce-Yama.zip
           generate_release_notes: true
+          
