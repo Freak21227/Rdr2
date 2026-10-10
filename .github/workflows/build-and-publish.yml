@@ -1,0 +1,80 @@
+name: Build and Publish Assets
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+      - main
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout source repository
+        uses: actions/checkout@v4
+        with:
+          repository: sinan-keskin/Red-Dead-Redemption-2-Turkce-Yama
+          ref: ${{ github.ref }}
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build .NET Framework WinForms application
+        shell: pwsh
+        run: |
+          $project = Get-ChildItem -Path . -Filter '*.csproj' -Recurse |
+            Select-Object -First 1
+
+          if (-not $project) {
+            throw "No .csproj file was found."
+          }
+
+          msbuild $project.FullName `
+            /restore `
+            /m `
+            /verbosity:minimal `
+            /p:Configuration=Release `
+            /p:Platform=AnyCPU
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "MSBuild failed with exit code $LASTEXITCODE"
+          }
+
+          $outputDir = Join-Path $project.DirectoryName 'bin\Release'
+          $exe = Get-ChildItem -Path $outputDir -Filter '*.exe' -File |
+            Select-Object -First 1
+
+          if (-not $exe) {
+            throw "Build completed but no EXE was found in $outputDir"
+          }
+
+          $packageDir = Join-Path $env:RUNNER_TEMP 'RDR2-Turkce-Yama'
+          New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
+          Copy-Item -Path (Join-Path $outputDir '*') -Destination $packageDir -Recurse -Force
+
+          $zipPath = Join-Path $env:GITHUB_WORKSPACE 'RDR2-Turkce-Yama.zip'
+          Compress-Archive -Path (Join-Path $packageDir '*') -DestinationPath $zipPath -Force
+
+          "PACKAGE_PATH=$zipPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RDR2-Turkce-Yama
+          path: RDR2-Turkce-Yama.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish ZIP to GitHub Release Assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: RDR2-Turkce-Yama.zip
+          generate_release_notes: true
